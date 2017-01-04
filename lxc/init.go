@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/lxc/lxd"
-	"github.com/lxc/lxd/shared/api"
+	"github.com/lxc/lxd/shared"
 	"github.com/lxc/lxd/shared/gnuflag"
 	"github.com/lxc/lxd/shared/i18n"
 )
@@ -64,6 +64,7 @@ type initCmd struct {
 	confArgs configList
 	ephem    bool
 	network  string
+	kvm      bool
 }
 
 func (c *initCmd) showByDefault() bool {
@@ -74,7 +75,7 @@ func (c *initCmd) usage() string {
 	return i18n.G(
 		`Initialize a container from a particular image.
 
-lxc init [<remote>:]<image> [<remote>:][<name>] [--ephemeral|-e] [--profile|-p <profile>...] [--config|-c <key=value>...] [--network|-n <network>]
+lxc init [remote:]<image> [remote:][<name>] [--ephemeral|-e] [--profile|-p <profile>...] [--config|-c <key=value>...] [--network|-n <network>]
 
 Initializes a container using the specified image and name.
 
@@ -82,7 +83,7 @@ Not specifying -p will result in the default profile.
 Specifying "-p" with no argument will result in no profile.
 
 Example:
-    lxc init ubuntu:16.04 u1`)
+lxc init ubuntu u1`)
 }
 
 func (c *initCmd) is_ephem(s string) bool {
@@ -173,7 +174,7 @@ func (c *initCmd) run(config *lxd.Config, args []string) error {
 		profiles = append(profiles, p)
 	}
 
-	var resp *api.Response
+	var resp *lxd.Response
 	if name == "" {
 		fmt.Printf(i18n.G("Creating the container") + "\n")
 	} else {
@@ -182,7 +183,7 @@ func (c *initCmd) run(config *lxd.Config, args []string) error {
 
 	iremote, image = c.guessImage(config, d, remote, iremote, image)
 
-	devicesMap := map[string]map[string]string{}
+	devicesMap := map[string]shared.Device{}
 	if c.network != "" {
 		network, err := d.NetworkGet(c.network)
 		if err != nil {
@@ -190,9 +191,9 @@ func (c *initCmd) run(config *lxd.Config, args []string) error {
 		}
 
 		if network.Type == "bridge" {
-			devicesMap[c.network] = map[string]string{"type": "nic", "nictype": "bridged", "parent": c.network}
+			devicesMap[c.network] = shared.Device{"type": "nic", "nictype": "bridged", "parent": c.network}
 		} else {
-			devicesMap[c.network] = map[string]string{"type": "nic", "nictype": "macvlan", "parent": c.network}
+			devicesMap[c.network] = shared.Device{"type": "nic", "nictype": "macvlan", "parent": c.network}
 		}
 	}
 
@@ -260,7 +261,7 @@ func (c *initCmd) initProgressTracker(d *lxd.Client, progress *ProgressRenderer,
 			return
 		}
 
-		if api.StatusCode(md["status_code"].(float64)).IsFinal() {
+		if shared.StatusCode(md["status_code"].(float64)).IsFinal() {
 			return
 		}
 
@@ -270,7 +271,7 @@ func (c *initCmd) initProgressTracker(d *lxd.Client, progress *ProgressRenderer,
 			progress.Update(opMd["download_progress"].(string))
 		}
 	}
-	go d.Monitor([]string{"operation"}, handler, nil)
+	go d.Monitor([]string{"operation"}, handler)
 }
 
 func (c *initCmd) guessImage(config *lxd.Config, d *lxd.Client, remote string, iremote string, image string) (string, string) {

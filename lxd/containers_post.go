@@ -4,22 +4,66 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/dustinkirkland/golang-petname"
 	"github.com/gorilla/websocket"
-
-	"github.com/lxc/lxd/lxd/types"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/osarch"
 
 	log "gopkg.in/inconshreveable/log15.v2"
 )
 
-func createFromImage(d *Daemon, req *api.ContainersPost) Response {
+type containerImageSource struct {
+	Type        string `json:"type"`
+	Certificate string `json:"certificate"`
+
+	/* for "image" type */
+	Alias       string            `json:"alias"`
+	Fingerprint string            `json:"fingerprint"`
+	Properties  map[string]string `json:"properties"`
+	Server      string            `json:"server"`
+	Secret      string            `json:"secret"`
+	Protocol    string            `json:"protocol"`
+
+	/*
+	 * for "migration" and "copy" types, as an optimization users can
+	 * provide an image hash to extract before the filesystem is rsync'd,
+	 * potentially cutting down filesystem transfer time. LXD will not go
+	 * and fetch this image, it will simply use it if it exists in the
+	 * image store.
+	 */
+	BaseImage string `json:"base-image"`
+
+	/* for "migration" type */
+	Mode       string            `json:"mode"`
+	Operation  string            `json:"operation"`
+	Websockets map[string]string `json:"secrets"`
+
+	/* for "copy" type */
+	Source string `json:"source"`
+	/* for "migration" type. Whether the migration is live. */
+	Live bool `json:"live"`
+}
+
+type containerPostReq struct {
+	KVM          bool                 `json:"kvm"`
+	KVMImagePath string               `json:"kvmImagePath"`
+	Architecture string               `json:"architecture"`
+	Config       map[string]string    `json:"config"`
+	Devices      shared.Devices       `json:"devices"`
+	Ephemeral    bool                 `json:"ephemeral"`
+	Name         string               `json:"name"`
+	Profiles     []string             `json:"profiles"`
+	Source       containerImageSource `json:"source"`
+}
+
+func createFromImage(d *Daemon, req *containerPostReq) Response {
 	var hash string
 	var err error
 
@@ -48,7 +92,7 @@ func createFromImage(d *Daemon, req *api.ContainersPost) Response {
 			return InternalError(err)
 		}
 
-		var image *api.Image
+		var image *shared.ImageInfo
 
 		for _, hash := range hashes {
 			_, img, err := dbImageGet(d.db, hash, false, true)
@@ -56,7 +100,7 @@ func createFromImage(d *Daemon, req *api.ContainersPost) Response {
 				continue
 			}
 
-			if image != nil && img.CreatedAt.Before(image.CreatedAt) {
+			if image != nil && img.CreationDate.Before(image.CreationDate) {
 				continue
 			}
 
@@ -101,7 +145,7 @@ func createFromImage(d *Daemon, req *api.ContainersPost) Response {
 
 		hash = imgInfo.Fingerprint
 
-		architecture, err := osarch.ArchitectureId(imgInfo.Architecture)
+		architecture, err := shared.ArchitectureId(imgInfo.Architecture)
 		if err != nil {
 			architecture = 0
 		}
@@ -132,8 +176,8 @@ func createFromImage(d *Daemon, req *api.ContainersPost) Response {
 	return OperationResponse(op)
 }
 
-func createFromNone(d *Daemon, req *api.ContainersPost) Response {
-	architecture, err := osarch.ArchitectureId(req.Architecture)
+func createFromNone(d *Daemon, req *containerPostReq) Response {
+	architecture, err := shared.ArchitectureId(req.Architecture)
 	if err != nil {
 		architecture = 0
 	}
@@ -164,12 +208,12 @@ func createFromNone(d *Daemon, req *api.ContainersPost) Response {
 	return OperationResponse(op)
 }
 
-func createFromMigration(d *Daemon, req *api.ContainersPost) Response {
+func createFromMigration(d *Daemon, req *containerPostReq) Response {
 	if req.Source.Mode != "pull" && req.Source.Mode != "push" {
 		return NotImplemented
 	}
 
-	architecture, err := osarch.ArchitectureId(req.Architecture)
+	architecture, err := shared.ArchitectureId(req.Architecture)
 	if err != nil {
 		architecture = 0
 	}
@@ -293,7 +337,7 @@ func createFromMigration(d *Daemon, req *api.ContainersPost) Response {
 	return OperationResponse(op)
 }
 
-func createFromCopy(d *Daemon, req *api.ContainersPost) Response {
+func createFromCopy(d *Daemon, req *containerPostReq) Response {
 	if req.Source.Source == "" {
 		return BadRequest(fmt.Errorf("must specify a source container"))
 	}
@@ -361,15 +405,65 @@ func createFromCopy(d *Daemon, req *api.ContainersPost) Response {
 	return OperationResponse(op)
 }
 
+// Dummy response object for containerPostKVM.
+type resp struct{}
+
+func (r resp) Render(w http.ResponseWriter) error {
+	w.Write([]byte(""))
+	return nil
+}
+
+func (r resp) String() string { return "" }
+
 func containersPost(d *Daemon, r *http.Request) Response {
 	shared.LogDebugf("Responding to container create")
 
-	req := api.ContainersPost{}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	req := &containerPostReq{}
+	dec := json.NewDecoder(r.Body)
+
+	if err := dec.Decode(&req); err == io.EOF {
+		return BadRequest(err)
+	}
+	if !req.KVM {
+		return containersPostLXC(d, req)
+	}
+	return containerPostKVM(d, req)
+}
+
+// KVM version of containerPost.
+func containerPostKVM(d *Daemon, r *containerPostReq) Response {
+	if r.KVMImagePath == "" {
+		return BadRequest(errors.New("No path for KVM image is provided."))
+	}
+
+	unameRelease, err := getUnameRelease()
+	if err != nil {
 		return BadRequest(err)
 	}
 
-	if req.Name == "" {
+	cmd := exec.Command(
+		"qemu-system-x86_64",
+		"-kernel", fmt.Sprintf("/boot/vmlinuz-%v", unameRelease),
+		"-initrd", fmt.Sprintf("/boot/initrd.img-%v", unameRelease),
+		"-fsdev", fmt.Sprintf("local,id=r,path=%v,security_model=none", r.KVMImagePath),
+		"-device", "virtio-9p-pci,fsdev=r,mount_tag=r",
+		"-nographic",
+		"-append", "'root=r rw rootfstype=9p rootflags=trans=virtio console=ttyS0 init=/bin/sh'",
+		"-m", "1024",
+	)
+	cmd.Stderr = os.Stdout
+	cmd.Stdout = os.Stdout
+	err = cmd.Run()
+	if err != nil {
+		return BadRequest(err)
+	}
+
+	return resp{}
+}
+
+// LXC verion of containersPost.
+func containersPostLXC(d *Daemon, r *containerPostReq) Response {
+	if r.Name == "" {
 		cs, err := dbContainersList(d.db, cTypeRegular)
 		if err != nil {
 			return InternalError(err)
@@ -378,8 +472,8 @@ func containersPost(d *Daemon, r *http.Request) Response {
 		i := 0
 		for {
 			i++
-			req.Name = strings.ToLower(petname.Generate(2, "-"))
-			if !shared.StringInSlice(req.Name, cs) {
+			r.Name = strings.ToLower(petname.Generate(2, "-"))
+			if !shared.StringInSlice(r.Name, cs) {
 				break
 			}
 
@@ -387,31 +481,31 @@ func containersPost(d *Daemon, r *http.Request) Response {
 				return InternalError(fmt.Errorf("couldn't generate a new unique name after 100 tries"))
 			}
 		}
-		shared.LogDebugf("No name provided, creating %s", req.Name)
+		shared.LogDebugf("No name provided, creating %s", r.Name)
 	}
 
-	if req.Devices == nil {
-		req.Devices = types.Devices{}
+	if r.Devices == nil {
+		r.Devices = shared.Devices{}
 	}
 
-	if req.Config == nil {
-		req.Config = map[string]string{}
+	if r.Config == nil {
+		r.Config = map[string]string{}
 	}
 
-	if strings.Contains(req.Name, shared.SnapshotDelimiter) {
+	if strings.Contains(r.Name, shared.SnapshotDelimiter) {
 		return BadRequest(fmt.Errorf("Invalid container name: '%s' is reserved for snapshots", shared.SnapshotDelimiter))
 	}
 
-	switch req.Source.Type {
+	switch r.Source.Type {
 	case "image":
-		return createFromImage(d, &req)
+		return createFromImage(d, r)
 	case "none":
-		return createFromNone(d, &req)
+		return createFromNone(d, r)
 	case "migration":
-		return createFromMigration(d, &req)
+		return createFromMigration(d, r)
 	case "copy":
-		return createFromCopy(d, &req)
+		return createFromCopy(d, r)
 	default:
-		return BadRequest(fmt.Errorf("unknown source type %s", req.Source.Type))
+		return BadRequest(fmt.Errorf("unknown source type %s", r.Source.Type))
 	}
 }

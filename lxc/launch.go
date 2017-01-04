@@ -6,9 +6,8 @@ import (
 
 	"github.com/lxc/lxd"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
+	"github.com/lxc/lxd/shared/gnuflag"
 	"github.com/lxc/lxd/shared/i18n"
-	"github.com/lxc/lxd/shared/version"
 )
 
 type launchCmd struct {
@@ -23,7 +22,7 @@ func (c *launchCmd) usage() string {
 	return i18n.G(
 		`Launch a container from a particular image.
 
-lxc launch [<remote>:]<image> [<remote>:][<name>] [--ephemeral|-e] [--profile|-p <profile>...] [--config|-c <key=value>...] [--network|-n <network>]
+lxc launch [remote:]<image> [remote:][<name>] [--ephemeral|-e] [--profile|-p <profile>...] [--config|-c <key=value>...] [--network|-n <network>]
 
 Launches a container using the specified image and name.
 
@@ -31,15 +30,34 @@ Not specifying -p will result in the default profile.
 Specifying "-p" with no argument will result in no profile.
 
 Example:
-    lxc launch ubuntu:16.04 u1`)
+lxc launch ubuntu:16.04 u1`)
 }
 
 func (c *launchCmd) flags() {
 	c.init = initCmd{}
-	c.init.flags()
+
+	c.init.massage_args()
+	gnuflag.Var(&c.init.confArgs, "config", i18n.G("Config key/value to apply to the new container"))
+	gnuflag.Var(&c.init.confArgs, "c", i18n.G("Config key/value to apply to the new container"))
+	gnuflag.Var(&c.init.profArgs, "profile", i18n.G("Profile to apply to the new container"))
+	gnuflag.Var(&c.init.profArgs, "p", i18n.G("Profile to apply to the new container"))
+	gnuflag.BoolVar(&c.init.ephem, "ephemeral", false, i18n.G("Ephemeral container"))
+	gnuflag.BoolVar(&c.init.ephem, "e", false, i18n.G("Ephemeral container"))
+	gnuflag.StringVar(&c.init.network, "network", "", i18n.G("Network name"))
+	gnuflag.StringVar(&c.init.network, "n", "", i18n.G("Network name"))
+
+	gnuflag.BoolVar(&c.init.kvm, "kvm", false, i18n.G("KVM support"))
 }
 
 func (c *launchCmd) run(config *lxd.Config, args []string) error {
+	if c.init.kvm {
+		remote, _ := config.ParseRemoteAndContainer("")
+		d, err := lxd.NewClient(config, remote)
+		if err != nil {
+			return err
+		}
+		return d.LaunchKVMContainer(args[0])
+	}
 	if len(args) > 2 || len(args) < 1 {
 		return errArgs
 	}
@@ -63,7 +81,7 @@ func (c *launchCmd) run(config *lxd.Config, args []string) error {
 	 * initRequestedEmptyProfiles means user requested empty
 	 * !initRequestedEmptyProfiles but len(profArgs) == 0 means use profile default
 	 */
-	var resp *api.Response
+	var resp *lxd.Response
 	profiles := []string{}
 	for _, p := range c.init.profArgs {
 		profiles = append(profiles, p)
@@ -71,7 +89,7 @@ func (c *launchCmd) run(config *lxd.Config, args []string) error {
 
 	iremote, image = c.init.guessImage(config, d, remote, iremote, image)
 
-	devicesMap := map[string]map[string]string{}
+	devicesMap := map[string]shared.Device{}
 	if c.init.network != "" {
 		network, err := d.NetworkGet(c.init.network)
 		if err != nil {
@@ -79,9 +97,9 @@ func (c *launchCmd) run(config *lxd.Config, args []string) error {
 		}
 
 		if network.Type == "bridge" {
-			devicesMap[c.init.network] = map[string]string{"type": "nic", "nictype": "bridged", "parent": c.init.network}
+			devicesMap[c.init.network] = shared.Device{"type": "nic", "nictype": "bridged", "parent": c.init.network}
 		} else {
-			devicesMap[c.init.network] = map[string]string{"type": "nic", "nictype": "macvlan", "parent": c.init.network}
+			devicesMap[c.init.network] = shared.Device{"type": "nic", "nictype": "macvlan", "parent": c.init.network}
 		}
 	}
 
@@ -109,9 +127,9 @@ func (c *launchCmd) run(config *lxd.Config, args []string) error {
 			return fmt.Errorf(i18n.G("didn't get any affected image, container or snapshot from server"))
 		}
 
-		var restVersion string
+		var version string
 		toScan := strings.Replace(containers[0], "/", " ", -1)
-		count, err := fmt.Sscanf(toScan, " %s containers %s", &restVersion, &name)
+		count, err := fmt.Sscanf(toScan, " %s containers %s", &version, &name)
 		if err != nil {
 			return err
 		}
@@ -120,7 +138,7 @@ func (c *launchCmd) run(config *lxd.Config, args []string) error {
 			return fmt.Errorf(i18n.G("bad number of things scanned from image, container or snapshot"))
 		}
 
-		if restVersion != version.APIVersion {
+		if version != shared.APIVersion {
 			return fmt.Errorf(i18n.G("got bad version"))
 		}
 	}
