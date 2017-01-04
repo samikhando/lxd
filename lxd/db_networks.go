@@ -7,7 +7,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/lxc/lxd/shared/api"
+	"github.com/lxc/lxd/shared"
 )
 
 func dbNetworks(db *sql.DB) ([]string, error) {
@@ -28,11 +28,11 @@ func dbNetworks(db *sql.DB) ([]string, error) {
 	return response, nil
 }
 
-func dbNetworkGet(db *sql.DB, name string) (int64, *api.Network, error) {
+func dbNetworkGet(db *sql.DB, network string) (int64, *shared.NetworkConfig, error) {
 	id := int64(-1)
 
 	q := "SELECT id FROM networks WHERE name=?"
-	arg1 := []interface{}{name}
+	arg1 := []interface{}{network}
 	arg2 := []interface{}{&id}
 	err := dbQueryRowScan(db, q, arg1, arg2)
 	if err != nil {
@@ -44,17 +44,15 @@ func dbNetworkGet(db *sql.DB, name string) (int64, *api.Network, error) {
 		return -1, nil, err
 	}
 
-	network := api.Network{
-		Name:    name,
+	return id, &shared.NetworkConfig{
+		Name:    network,
 		Managed: true,
 		Type:    "bridge",
-	}
-	network.Config = config
-
-	return id, &network, nil
+		Config:  config,
+	}, nil
 }
 
-func dbNetworkGetInterface(db *sql.DB, devName string) (int64, *api.Network, error) {
+func dbNetworkGetInterface(db *sql.DB, devName string) (int64, *shared.NetworkConfig, error) {
 	id := int64(-1)
 	name := ""
 	value := ""
@@ -87,14 +85,12 @@ func dbNetworkGetInterface(db *sql.DB, devName string) (int64, *api.Network, err
 		return -1, nil, err
 	}
 
-	network := api.Network{
+	return id, &shared.NetworkConfig{
 		Name:    name,
 		Managed: true,
 		Type:    "bridge",
-	}
-	network.Config = config
-
-	return id, &network, nil
+		Config:  config,
+	}, nil
 }
 
 func dbNetworkConfigGet(db *sql.DB, id int64) (map[string]string, error) {

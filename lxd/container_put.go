@@ -7,13 +7,19 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/osarch"
 
 	log "gopkg.in/inconshreveable/log15.v2"
 )
+
+type containerPutReq struct {
+	Architecture string            `json:"architecture"`
+	Config       map[string]string `json:"config"`
+	Devices      shared.Devices    `json:"devices"`
+	Ephemeral    bool              `json:"ephemeral"`
+	Profiles     []string          `json:"profiles"`
+	Restore      string            `json:"restore"`
+}
 
 /*
  * Update configuration, or, if 'restore:snapshot-name' is present, restore
@@ -34,12 +40,12 @@ func containerPut(d *Daemon, r *http.Request) Response {
 		return PreconditionFailed(err)
 	}
 
-	configRaw := api.ContainerPut{}
+	configRaw := containerPutReq{}
 	if err := json.NewDecoder(r.Body).Decode(&configRaw); err != nil {
 		return BadRequest(err)
 	}
 
-	architecture, err := osarch.ArchitectureId(configRaw.Architecture)
+	architecture, err := shared.ArchitectureId(configRaw.Architecture)
 	if err != nil {
 		architecture = 0
 	}

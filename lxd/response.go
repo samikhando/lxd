@@ -9,13 +9,27 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/mattn/go-sqlite3"
 
+	"github.com/lxc/lxd"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
 )
+
+type syncResp struct {
+	Type       lxd.ResponseType  `json:"type"`
+	Status     string            `json:"status"`
+	StatusCode shared.StatusCode `json:"status_code"`
+	Metadata   interface{}       `json:"metadata"`
+}
+
+type asyncResp struct {
+	Type       lxd.ResponseType  `json:"type"`
+	Status     string            `json:"status"`
+	StatusCode shared.StatusCode `json:"status_code"`
+	Metadata   interface{}       `json:"metadata"`
+	Operation  string            `json:"operation"`
+}
 
 type Response interface {
 	Render(w http.ResponseWriter) error
@@ -41,9 +55,9 @@ func (r *syncResponse) Render(w http.ResponseWriter) error {
 	}
 
 	// Prepare the JSON response
-	status := api.Success
+	status := shared.Success
 	if !r.success {
-		status = api.Failure
+		status = shared.Failure
 	}
 
 	if r.headers != nil {
@@ -57,14 +71,7 @@ func (r *syncResponse) Render(w http.ResponseWriter) error {
 		w.WriteHeader(201)
 	}
 
-	resp := api.ResponseRaw{
-		Response: api.Response{
-			Type:       api.SyncResponse,
-			Status:     status.String(),
-			StatusCode: int(status)},
-		Metadata: r.metadata,
-	}
-
+	resp := syncResp{Type: lxd.Sync, Status: status.String(), StatusCode: status, Metadata: r.metadata}
 	return WriteJSON(w, resp)
 }
 
@@ -99,7 +106,6 @@ type fileResponseEntry struct {
 	identifier string
 	path       string
 	filename   string
-	buffer     []byte /* either a path or a buffer must be provided */
 }
 
 type fileResponse struct {
@@ -123,38 +129,24 @@ func (r *fileResponse) Render(w http.ResponseWriter) error {
 
 	// For a single file, return it inline
 	if len(r.files) == 1 {
-		var rs io.ReadSeeker
-		var mt time.Time
-		var sz int64
+		f, err := os.Open(r.files[0].path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
 
-		if r.files[0].path == "" {
-			rs = bytes.NewReader(r.files[0].buffer)
-			mt = time.Now()
-			sz = int64(len(r.files[0].buffer))
-		} else {
-			f, err := os.Open(r.files[0].path)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-
-			fi, err := f.Stat()
-			if err != nil {
-				return err
-			}
-
-			mt = fi.ModTime()
-			sz = fi.Size()
-			rs = f
+		fi, err := f.Stat()
+		if err != nil {
+			return err
 		}
 
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", sz))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
 		w.Header().Set("Content-Disposition", fmt.Sprintf("inline;filename=%s", r.files[0].filename))
 
-		http.ServeContent(w, r.req, r.files[0].filename, mt, rs)
-		if r.files[0].path != "" && r.removeAfterServe {
-			err := os.Remove(r.files[0].path)
+		http.ServeContent(w, r.req, r.files[0].filename, fi.ModTime(), f)
+		if r.removeAfterServe {
+			err = os.Remove(r.files[0].path)
 			if err != nil {
 				return err
 			}
@@ -168,24 +160,18 @@ func (r *fileResponse) Render(w http.ResponseWriter) error {
 	mw := multipart.NewWriter(body)
 
 	for _, entry := range r.files {
-		var rd io.Reader
-		if entry.path != "" {
-			fd, err := os.Open(entry.path)
-			if err != nil {
-				return err
-			}
-			defer fd.Close()
-			rd = fd
-		} else {
-			rd = bytes.NewReader(entry.buffer)
+		fd, err := os.Open(entry.path)
+		if err != nil {
+			return err
 		}
+		defer fd.Close()
 
 		fw, err := mw.CreateFormFile(entry.identifier, entry.filename)
 		if err != nil {
 			return err
 		}
 
-		_, err = io.Copy(fw, rd)
+		_, err = io.Copy(fw, fd)
 		if err != nil {
 			return err
 		}
@@ -223,15 +209,12 @@ func (r *operationResponse) Render(w http.ResponseWriter) error {
 		return err
 	}
 
-	body := api.ResponseRaw{
-		Response: api.Response{
-			Type:       api.AsyncResponse,
-			Status:     api.OperationCreated.String(),
-			StatusCode: int(api.OperationCreated),
-			Operation:  url,
-		},
-		Metadata: md,
-	}
+	body := asyncResp{
+		Type:       lxd.Async,
+		Status:     shared.OperationCreated.String(),
+		StatusCode: shared.OperationCreated,
+		Operation:  url,
+		Metadata:   md}
 
 	w.Header().Set("Location", url)
 	w.WriteHeader(202)
@@ -245,7 +228,7 @@ func (r *operationResponse) String() string {
 		return fmt.Sprintf("error: %s", err)
 	}
 
-	return md.ID
+	return md.Id
 }
 
 func OperationResponse(op *operation) Response {
@@ -273,7 +256,7 @@ func (r *errorResponse) Render(w http.ResponseWriter) error {
 		output = io.MultiWriter(buf, captured)
 	}
 
-	err := json.NewEncoder(output).Encode(shared.Jmap{"type": api.ErrorResponse, "error": r.msg, "error_code": r.code})
+	err := json.NewEncoder(output).Encode(shared.Jmap{"type": lxd.Error, "error": r.msg, "error_code": r.code})
 
 	if err != nil {
 		return err

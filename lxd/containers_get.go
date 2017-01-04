@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/version"
 )
 
 func containersGet(d *Daemon, r *http.Request) Response {
@@ -37,22 +35,22 @@ func doContainersGet(d *Daemon, recursion bool) (interface{}, error) {
 	}
 
 	resultString := []string{}
-	resultList := []*api.Container{}
+	resultList := []*shared.ContainerInfo{}
 	if err != nil {
 		return []string{}, err
 	}
 
 	for _, container := range result {
 		if !recursion {
-			url := fmt.Sprintf("/%s/containers/%s", version.APIVersion, container)
+			url := fmt.Sprintf("/%s/containers/%s", shared.APIVersion, container)
 			resultString = append(resultString, url)
 		} else {
 			c, err := doContainerGet(d, container)
 			if err != nil {
-				c = &api.Container{
+				c = &shared.ContainerInfo{
 					Name:       container,
-					Status:     api.Error.String(),
-					StatusCode: api.Error}
+					Status:     shared.Error.String(),
+					StatusCode: shared.Error}
 			}
 			resultList = append(resultList, c)
 		}
@@ -65,7 +63,7 @@ func doContainersGet(d *Daemon, recursion bool) (interface{}, error) {
 	return resultList, nil
 }
 
-func doContainerGet(d *Daemon, cname string) (*api.Container, error) {
+func doContainerGet(d *Daemon, cname string) (*shared.ContainerInfo, error) {
 	c, err := containerLoadByName(d, cname)
 	if err != nil {
 		return nil, err
@@ -76,5 +74,5 @@ func doContainerGet(d *Daemon, cname string) (*api.Container, error) {
 		return nil, err
 	}
 
-	return cts.(*api.Container), nil
+	return cts.(*shared.ContainerInfo), nil
 }

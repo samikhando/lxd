@@ -16,11 +16,19 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/version"
 
 	log "gopkg.in/inconshreveable/log15.v2"
 )
+
+type commandPostContent struct {
+	Command      []string          `json:"command"`
+	WaitForWS    bool              `json:"wait-for-websocket"`
+	RecordOutput bool              `json:"record-output"`
+	Interactive  bool              `json:"interactive"`
+	Environment  map[string]string `json:"environment"`
+	Width        int               `json:"width"`
+	Height       int               `json:"height"`
+}
 
 type execWs struct {
 	command   []string
@@ -132,14 +140,13 @@ func (s *execWs) Do(op *operation) error {
 	}
 
 	controlExit := make(chan bool)
-	attachedChildIsBorn := make(chan int)
-	attachedChildIsDead := make(chan bool, 1)
+	receivePid := make(chan int)
 	var wgEOF sync.WaitGroup
 
 	if s.interactive {
 		wgEOF.Add(1)
 		go func() {
-			attachedChildPid := <-attachedChildIsBorn
+			receivedPid := <-receivePid
 			select {
 			case <-s.controlConnected:
 				break
@@ -165,7 +172,7 @@ func (s *execWs) Do(op *operation) error {
 					break
 				}
 
-				command := api.ContainerExecControl{}
+				command := shared.ContainerExecControl{}
 
 				if err := json.Unmarshal(buf, &command); err != nil {
 					shared.LogDebugf("Failed to unmarshal control socket command: %s", err)
@@ -191,23 +198,21 @@ func (s *execWs) Do(op *operation) error {
 						continue
 					}
 				} else if command.Command == "signal" {
-					if err := syscall.Kill(attachedChildPid, syscall.Signal(command.Signal)); err != nil {
-						shared.LogDebugf("Failed forwarding signal '%s' to PID %d.", command.Signal, attachedChildPid)
+					if err := syscall.Kill(receivedPid, command.Signal); err != nil {
+						shared.LogDebugf("Failed forwarding signal '%s' to PID %d.", command.Signal, receivedPid)
 						continue
 					}
-					shared.LogDebugf("Forwarded signal '%s' to PID %d.", command.Signal, attachedChildPid)
+					shared.LogDebugf("Forwarded signal '%s' to PID %d.", command.Signal, receivedPid)
 				}
 			}
 		}()
-
 		go func() {
-			readDone, writeDone := shared.WebsocketExecMirror(s.conns[0], ptys[0], ptys[0], attachedChildIsDead, int(ptys[0].Fd()))
+			readDone, writeDone := shared.WebsocketMirror(s.conns[0], ptys[0], ptys[0])
 			<-readDone
 			<-writeDone
 			s.conns[0].Close()
 			wgEOF.Done()
 		}()
-
 	} else {
 		wgEOF.Add(len(ttys) - 1)
 		for i := 0; i < len(ttys); i++ {
@@ -237,8 +242,6 @@ func (s *execWs) Do(op *operation) error {
 			s.conns[-1].Close()
 		}
 
-		attachedChildIsDead <- true
-
 		wgEOF.Wait()
 
 		for _, pty := range ptys {
@@ -260,7 +263,7 @@ func (s *execWs) Do(op *operation) error {
 	}
 
 	if s.interactive {
-		attachedChildIsBorn <- attachedPid
+		receivePid <- attachedPid
 	}
 
 	proc, err := os.FindProcess(pid)
@@ -309,7 +312,7 @@ func containerExecPost(d *Daemon, r *http.Request) Response {
 		return BadRequest(fmt.Errorf("Container is frozen."))
 	}
 
-	post := api.ContainerExecPost{}
+	post := commandPostContent{}
 	buf, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		return BadRequest(err)
@@ -408,8 +411,8 @@ func containerExecPost(d *Daemon, r *http.Request) Response {
 			// Update metadata with the right URLs
 			metadata["return"] = cmdResult
 			metadata["output"] = shared.Jmap{
-				"1": fmt.Sprintf("/%s/containers/%s/logs/%s", version.APIVersion, c.Name(), filepath.Base(stdout.Name())),
-				"2": fmt.Sprintf("/%s/containers/%s/logs/%s", version.APIVersion, c.Name(), filepath.Base(stderr.Name())),
+				"1": fmt.Sprintf("/%s/containers/%s/logs/%s", shared.APIVersion, c.Name(), filepath.Base(stdout.Name())),
+				"2": fmt.Sprintf("/%s/containers/%s/logs/%s", shared.APIVersion, c.Name(), filepath.Base(stderr.Name())),
 			}
 		} else {
 			cmdResult, _, cmdErr = c.Exec(post.Command, env, nil, nil, nil, true)

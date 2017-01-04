@@ -7,7 +7,6 @@ import (
 	"path"
 
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/osarch"
 )
 
 const SECCOMP_HEADER = `2
@@ -122,7 +121,7 @@ func getSeccompProfileContent(c container) (string, error) {
 
 	compat := config["security.syscalls.blacklist_compat"]
 	if shared.IsTrue(compat) {
-		arch, err := osarch.ArchitectureName(c.Architecture())
+		arch, err := shared.ArchitectureName(c.Architecture())
 		if err != nil {
 			return "", err
 		}

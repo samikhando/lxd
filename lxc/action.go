@@ -5,7 +5,6 @@ import (
 
 	"github.com/lxc/lxd"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
 	"github.com/lxc/lxd/shared/gnuflag"
 	"github.com/lxc/lxd/shared/i18n"
 )
@@ -32,19 +31,19 @@ func (c *actionCmd) usage() string {
 	}
 
 	return fmt.Sprintf(i18n.G(
-		`Change state of one or more containers to %s.
+		`Changes state of one or more containers to %s.
 
-lxc %s [<remote>:]<container> [[<remote>:]<container>...]%s`), c.name, c.name, c.additionalHelp)
+lxc %s <name> [<name>...]%s`), c.name, c.name, c.additionalHelp)
 }
 
 func (c *actionCmd) flags() {
 	if c.hasTimeout {
-		gnuflag.IntVar(&c.timeout, "timeout", -1, i18n.G("Time to wait for the container before killing it"))
-		gnuflag.BoolVar(&c.force, "f", false, i18n.G("Force the container to shutdown"))
-		gnuflag.BoolVar(&c.force, "force", false, i18n.G("Force the container to shutdown"))
+		gnuflag.IntVar(&c.timeout, "timeout", -1, i18n.G("Time to wait for the container before killing it."))
+		gnuflag.BoolVar(&c.force, "f", false, i18n.G("Force the container to shutdown."))
+		gnuflag.BoolVar(&c.force, "force", false, i18n.G("Force the container to shutdown."))
 	}
-	gnuflag.BoolVar(&c.stateful, "stateful", false, i18n.G("Store the container state (only for stop)"))
-	gnuflag.BoolVar(&c.stateless, "stateless", false, i18n.G("Ignore the container state (only for start)"))
+	gnuflag.BoolVar(&c.stateful, "stateful", false, i18n.G("Store the container state (only for stop)."))
+	gnuflag.BoolVar(&c.stateless, "stateless", false, i18n.G("Ignore the container state (only for start)."))
 }
 
 func (c *actionCmd) run(config *lxd.Config, args []string) error {
@@ -77,7 +76,7 @@ func (c *actionCmd) run(config *lxd.Config, args []string) error {
 			}
 
 			// "start" for a frozen container means "unfreeze"
-			if current.StatusCode == api.Frozen {
+			if current.StatusCode == shared.Frozen {
 				c.action = shared.Unfreeze
 			}
 
@@ -92,7 +91,7 @@ func (c *actionCmd) run(config *lxd.Config, args []string) error {
 			return err
 		}
 
-		if resp.Type != api.AsyncResponse {
+		if resp.Type != lxd.Async {
 			return fmt.Errorf(i18n.G("bad result type from action"))
 		}
 

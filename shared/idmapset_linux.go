@@ -188,6 +188,7 @@ func (m IdmapSet) Len() int {
 func (m IdmapSet) Intersects(i IdmapEntry) bool {
 	for _, e := range m.Idmap {
 		if i.Intersects(e) {
+			fmt.Printf("%v and %v intersect\n", i, e)
 			return true
 		}
 	}

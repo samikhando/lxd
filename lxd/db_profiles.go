@@ -6,8 +6,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/lxc/lxd/lxd/types"
-	"github.com/lxc/lxd/shared/api"
+	"github.com/lxc/lxd/shared"
 )
 
 // dbProfiles returns a string list of profiles.
@@ -29,41 +28,38 @@ func dbProfiles(db *sql.DB) ([]string, error) {
 	return response, nil
 }
 
-func dbProfileGet(db *sql.DB, name string) (int64, *api.Profile, error) {
+func dbProfileGet(db *sql.DB, profile string) (int64, *shared.ProfileConfig, error) {
 	id := int64(-1)
 	description := sql.NullString{}
 
 	q := "SELECT id, description FROM profiles WHERE name=?"
-	arg1 := []interface{}{name}
+	arg1 := []interface{}{profile}
 	arg2 := []interface{}{&id, &description}
 	err := dbQueryRowScan(db, q, arg1, arg2)
 	if err != nil {
 		return -1, nil, err
 	}
 
-	config, err := dbProfileConfig(db, name)
+	config, err := dbProfileConfig(db, profile)
 	if err != nil {
 		return -1, nil, err
 	}
 
-	devices, err := dbDevices(db, name, true)
+	devices, err := dbDevices(db, profile, true)
 	if err != nil {
 		return -1, nil, err
 	}
 
-	profile := api.Profile{
-		Name: name,
-	}
-
-	profile.Config = config
-	profile.Description = description.String
-	profile.Devices = devices
-
-	return id, &profile, nil
+	return id, &shared.ProfileConfig{
+		Name:        profile,
+		Config:      config,
+		Description: description.String,
+		Devices:     devices,
+	}, nil
 }
 
 func dbProfileCreate(db *sql.DB, profile string, description string, config map[string]string,
-	devices types.Devices) (int64, error) {
+	devices shared.Devices) (int64, error) {
 
 	tx, err := dbBegin(db)
 	if err != nil {
@@ -108,7 +104,7 @@ func dbProfileCreateDefault(db *sql.DB) error {
 		return nil
 	}
 
-	id, err := dbProfileCreate(db, "default", "Default LXD profile", map[string]string{}, types.Devices{})
+	id, err := dbProfileCreate(db, "default", "Default LXD profile", map[string]string{}, shared.Devices{})
 	if err != nil {
 		return err
 	}
@@ -132,7 +128,7 @@ func dbProfileCreateDocker(db *sql.DB) error {
 		"type":   "disk",
 		"source": "/dev/null",
 	}
-	devices := map[string]map[string]string{"aadisable": aadisable}
+	devices := map[string]shared.Device{"aadisable": aadisable}
 
 	_, err = dbProfileCreate(db, "docker", "Profile supporting docker in containers", config, devices)
 	return err

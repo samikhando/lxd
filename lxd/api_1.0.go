@@ -11,9 +11,6 @@ import (
 	"gopkg.in/lxc/go-lxc.v2"
 
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/osarch"
-	"github.com/lxc/lxd/shared/version"
 )
 
 var api10 = []Command{
@@ -47,7 +44,7 @@ var api10 = []Command{
 }
 
 func api10Get(d *Daemon, r *http.Request) Response {
-	srv := api.ServerUntrusted{
+	body := shared.Jmap{
 		/* List of API extensions in the order they were added.
 		 *
 		 * The following kind of changes require an addition to api_extensions:
@@ -57,7 +54,7 @@ func api10Get(d *Daemon, r *http.Request) Response {
 		 *  - New argument inside an existing REST API call
 		 *  - New HTTPs authentication mechanisms or protocols
 		 */
-		APIExtensions: []string{
+		"api_extensions": []string{
 			"storage_zfs_remove_snapshots",
 			"container_host_shutdown_timeout",
 			"container_syscall_filtering",
@@ -85,95 +82,98 @@ func api10Get(d *Daemon, r *http.Request) Response {
 			"network_firewall_filtering",
 			"network_routes",
 		},
-		APIStatus:  "stable",
-		APIVersion: version.APIVersion,
-		Public:     false,
-		Auth:       "untrusted",
+
+		"api_status":  "stable",
+		"api_version": shared.APIVersion,
 	}
 
-	// If untrusted, return now
-	if !d.isTrustedClient(r) {
-		return SyncResponseETag(true, srv, nil)
-	}
+	if d.isTrustedClient(r) {
+		body["auth"] = "trusted"
 
-	srv.Auth = "trusted"
-
-	/*
-	 * Based on: https://groups.google.com/forum/#!topic/golang-nuts/Jel8Bb-YwX8
-	 * there is really no better way to do this, which is
-	 * unfortunate. Also, we ditch the more accepted CharsToString
-	 * version in that thread, since it doesn't seem as portable,
-	 * viz. github issue #206.
-	 */
-	uname := syscall.Utsname{}
-	if err := syscall.Uname(&uname); err != nil {
-		return InternalError(err)
-	}
-
-	kernel := ""
-	for _, c := range uname.Sysname {
-		if c == 0 {
-			break
+		/*
+		 * Based on: https://groups.google.com/forum/#!topic/golang-nuts/Jel8Bb-YwX8
+		 * there is really no better way to do this, which is
+		 * unfortunate. Also, we ditch the more accepted CharsToString
+		 * version in that thread, since it doesn't seem as portable,
+		 * viz. github issue #206.
+		 */
+		uname := syscall.Utsname{}
+		if err := syscall.Uname(&uname); err != nil {
+			return InternalError(err)
 		}
-		kernel += string(byte(c))
-	}
 
-	kernelVersion := ""
-	for _, c := range uname.Release {
-		if c == 0 {
-			break
+		kernel := ""
+		for _, c := range uname.Sysname {
+			if c == 0 {
+				break
+			}
+			kernel += string(byte(c))
 		}
-		kernelVersion += string(byte(c))
-	}
 
-	kernelArchitecture := ""
-	for _, c := range uname.Machine {
-		if c == 0 {
-			break
+		kernelVersion := ""
+		for _, c := range uname.Release {
+			if c == 0 {
+				break
+			}
+			kernelVersion += string(byte(c))
 		}
-		kernelArchitecture += string(byte(c))
-	}
 
-	addresses, err := d.ListenAddresses()
-	if err != nil {
-		return InternalError(err)
-	}
+		kernelArchitecture := ""
+		for _, c := range uname.Machine {
+			if c == 0 {
+				break
+			}
+			kernelArchitecture += string(byte(c))
+		}
 
-	var certificate string
-	if len(d.tlsConfig.Certificates) != 0 {
-		certificate = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: d.tlsConfig.Certificates[0].Certificate[0]}))
-	}
-
-	architectures := []string{}
-
-	for _, architecture := range d.architectures {
-		architectureName, err := osarch.ArchitectureName(architecture)
+		addresses, err := d.ListenAddresses()
 		if err != nil {
 			return InternalError(err)
 		}
-		architectures = append(architectures, architectureName)
+
+		var certificate string
+		if len(d.tlsConfig.Certificates) != 0 {
+			certificate = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: d.tlsConfig.Certificates[0].Certificate[0]}))
+		}
+
+		architectures := []string{}
+
+		for _, architecture := range d.architectures {
+			architectureName, err := shared.ArchitectureName(architecture)
+			if err != nil {
+				return InternalError(err)
+			}
+			architectures = append(architectures, architectureName)
+		}
+
+		env := shared.Jmap{
+			"addresses":           addresses,
+			"architectures":       architectures,
+			"certificate":         certificate,
+			"driver":              "lxc",
+			"driver_version":      lxc.Version(),
+			"kernel":              kernel,
+			"kernel_architecture": kernelArchitecture,
+			"kernel_version":      kernelVersion,
+			"storage":             d.Storage.GetStorageTypeName(),
+			"storage_version":     d.Storage.GetStorageTypeVersion(),
+			"server":              "lxd",
+			"server_pid":          os.Getpid(),
+			"server_version":      shared.Version}
+
+		body["environment"] = env
+		body["public"] = false
+		body["config"] = daemonConfigRender()
+	} else {
+		body["auth"] = "untrusted"
+		body["public"] = false
 	}
 
-	env := api.ServerEnvironment{
-		Addresses:          addresses,
-		Architectures:      architectures,
-		Certificate:        certificate,
-		Driver:             "lxc",
-		DriverVersion:      lxc.Version(),
-		Kernel:             kernel,
-		KernelArchitecture: kernelArchitecture,
-		KernelVersion:      kernelVersion,
-		Storage:            d.Storage.GetStorageTypeName(),
-		StorageVersion:     d.Storage.GetStorageTypeVersion(),
-		Server:             "lxd",
-		ServerPid:          os.Getpid(),
-		ServerVersion:      version.Version}
+	return SyncResponseETag(true, body, body["config"])
+}
 
-	fullSrv := api.Server{ServerUntrusted: srv}
-	fullSrv.Environment = env
-	fullSrv.Config = daemonConfigRender()
-
-	return SyncResponseETag(true, fullSrv, fullSrv.Config)
+type apiPut struct {
+	Config shared.Jmap `json:"config"`
 }
 
 func api10Put(d *Daemon, r *http.Request) Response {
@@ -187,7 +187,7 @@ func api10Put(d *Daemon, r *http.Request) Response {
 		return PreconditionFailed(err)
 	}
 
-	req := api.ServerPut{}
+	req := apiPut{}
 	if err := shared.ReadToJSON(r.Body, &req); err != nil {
 		return BadRequest(err)
 	}
@@ -206,7 +206,7 @@ func api10Patch(d *Daemon, r *http.Request) Response {
 		return PreconditionFailed(err)
 	}
 
-	req := api.ServerPut{}
+	req := apiPut{}
 	if err := shared.ReadToJSON(r.Body, &req); err != nil {
 		return BadRequest(err)
 	}
@@ -225,7 +225,7 @@ func api10Patch(d *Daemon, r *http.Request) Response {
 	return doApi10Update(d, oldConfig, req)
 }
 
-func doApi10Update(d *Daemon, oldConfig map[string]string, req api.ServerPut) Response {
+func doApi10Update(d *Daemon, oldConfig map[string]string, req apiPut) Response {
 	// Deal with special keys
 	for k, v := range req.Config {
 		config := daemonConfig[k]

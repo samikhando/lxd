@@ -9,10 +9,7 @@ import (
 
 	"gopkg.in/lxc/go-lxc.v2"
 
-	"github.com/lxc/lxd/lxd/types"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/osarch"
 )
 
 // Helper functions
@@ -51,9 +48,9 @@ func containerValidConfigKey(d *Daemon, key string, value string) error {
 	}
 	if key == "security.syscalls.blacklist_compat" {
 		for _, arch := range d.architectures {
-			if arch == osarch.ARCH_64BIT_INTEL_X86 ||
-				arch == osarch.ARCH_64BIT_ARMV8_LITTLE_ENDIAN ||
-				arch == osarch.ARCH_64BIT_POWERPC_BIG_ENDIAN {
+			if arch == shared.ARCH_64BIT_INTEL_X86 ||
+				arch == shared.ARCH_64BIT_ARMV8_LITTLE_ENDIAN ||
+				arch == shared.ARCH_64BIT_POWERPC_BIG_ENDIAN {
 				return nil
 			}
 		}
@@ -217,7 +214,7 @@ func containerValidConfig(d *Daemon, config map[string]string, profile bool, exp
 	return nil
 }
 
-func containerValidDevices(devices types.Devices, profile bool, expanded bool) error {
+func containerValidDevices(devices shared.Devices, profile bool, expanded bool) error {
 	// Empty device list
 	if devices == nil {
 		return nil
@@ -317,7 +314,7 @@ type containerArgs struct {
 	CreationDate time.Time
 	LastUsedDate time.Time
 	Ctype        containerType
-	Devices      types.Devices
+	Devices      shared.Devices
 	Ephemeral    bool
 	Name         string
 	Profiles     []string
@@ -375,7 +372,7 @@ type container interface {
 
 	// Status
 	Render() (interface{}, interface{}, error)
-	RenderState() (*api.ContainerState, error)
+	RenderState() (*shared.ContainerState, error)
 	IsPrivileged() bool
 	IsRunning() bool
 	IsFrozen() bool
@@ -395,9 +392,9 @@ type container interface {
 	CreationDate() time.Time
 	LastUsedDate() time.Time
 	ExpandedConfig() map[string]string
-	ExpandedDevices() types.Devices
+	ExpandedDevices() shared.Devices
 	LocalConfig() map[string]string
-	LocalDevices() types.Devices
+	LocalDevices() shared.Devices
 	Profiles() []string
 	InitPID() int
 	State() string
@@ -598,7 +595,7 @@ func containerCreateInternal(d *Daemon, args containerArgs) (container, error) {
 	}
 
 	if args.Devices == nil {
-		args.Devices = types.Devices{}
+		args.Devices = shared.Devices{}
 	}
 
 	if args.Architecture == 0 {
@@ -626,7 +623,7 @@ func containerCreateInternal(d *Daemon, args containerArgs) (container, error) {
 	}
 
 	// Validate architecture
-	_, err = osarch.ArchitectureName(args.Architecture)
+	_, err = shared.ArchitectureName(args.Architecture)
 	if err != nil {
 		return nil, err
 	}

@@ -3,9 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/lxc/lxd/lxd/types"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
 )
 
 func (suite *lxdTestSuite) TestContainer_ProfilesDefault() {
@@ -38,7 +36,7 @@ func (suite *lxdTestSuite) TestContainer_ProfilesMulti() {
 		"unprivileged",
 		"unprivileged",
 		map[string]string{"security.privileged": "true"},
-		types.Devices{})
+		shared.Devices{})
 
 	suite.Req.Nil(err, "Failed to create the unprivileged profile.")
 	defer func() {
@@ -72,8 +70,8 @@ func (suite *lxdTestSuite) TestContainer_ProfilesOverwriteDefaultNic() {
 		Ctype:     cTypeRegular,
 		Ephemeral: false,
 		Config:    map[string]string{"security.privileged": "true"},
-		Devices: types.Devices{
-			"eth0": types.Device{
+		Devices: shared.Devices{
+			"eth0": shared.Device{
 				"type":    "nic",
 				"nictype": "bridged",
 				"parent":  "unknownbr0"}},
@@ -88,7 +86,7 @@ func (suite *lxdTestSuite) TestContainer_ProfilesOverwriteDefaultNic() {
 	out, _, err := c.Render()
 	suite.Req.Nil(err)
 
-	state := out.(*api.Container)
+	state := out.(*shared.ContainerInfo)
 	defer c.Delete()
 
 	suite.Equal(
@@ -102,8 +100,8 @@ func (suite *lxdTestSuite) TestContainer_LoadFromDB() {
 		Ctype:     cTypeRegular,
 		Ephemeral: false,
 		Config:    map[string]string{"security.privileged": "true"},
-		Devices: types.Devices{
-			"eth0": types.Device{
+		Devices: shared.Devices{
+			"eth0": shared.Device{
 				"type":    "nic",
 				"nictype": "bridged",
 				"parent":  "unknownbr0"}},

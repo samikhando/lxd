@@ -31,10 +31,7 @@ import (
 
 	"github.com/lxc/lxd"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
 	"github.com/lxc/lxd/shared/logging"
-	"github.com/lxc/lxd/shared/osarch"
-	"github.com/lxc/lxd/shared/version"
 
 	log "gopkg.in/inconshreveable/log15.v2"
 )
@@ -110,10 +107,10 @@ type Command struct {
 	patch         func(d *Daemon, r *http.Request) Response
 }
 
-func (d *Daemon) httpClient(certificate string) (*http.Client, error) {
+func (d *Daemon) httpGetSync(url string, certificate string) (*lxd.Response, error) {
 	var err error
-	var cert *x509.Certificate
 
+	var cert *x509.Certificate
 	if certificate != "" {
 		certBlock, _ := pem.Decode([]byte(certificate))
 		if certBlock == nil {
@@ -142,23 +139,12 @@ func (d *Daemon) httpClient(certificate string) (*http.Client, error) {
 		Transport: tr,
 	}
 
-	return &myhttp, nil
-}
-
-func (d *Daemon) httpGetSync(url string, certificate string) (*api.Response, error) {
-	var err error
-
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", version.UserAgent)
-
-	myhttp, err := d.httpClient(certificate)
-	if err != nil {
-		return nil, err
-	}
+	req.Header.Set("User-Agent", shared.UserAgent)
 
 	r, err := myhttp.Do(req)
 	if err != nil {
@@ -170,7 +156,7 @@ func (d *Daemon) httpGetSync(url string, certificate string) (*api.Response, err
 		return nil, err
 	}
 
-	if resp.Type != api.SyncResponse {
+	if resp.Type != lxd.Sync {
 		return nil, fmt.Errorf("unexpected non-sync response")
 	}
 
@@ -180,9 +166,32 @@ func (d *Daemon) httpGetSync(url string, certificate string) (*api.Response, err
 func (d *Daemon) httpGetFile(url string, certificate string) (*http.Response, error) {
 	var err error
 
-	myhttp, err := d.httpClient(certificate)
+	var cert *x509.Certificate
+	if certificate != "" {
+		certBlock, _ := pem.Decode([]byte(certificate))
+		if certBlock == nil {
+			return nil, fmt.Errorf("Invalid certificate")
+		}
+
+		cert, err = x509.ParseCertificate(certBlock.Bytes)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	tlsConfig, err := shared.GetTLSConfig("", "", "", cert)
 	if err != nil {
 		return nil, err
+	}
+
+	tr := &http.Transport{
+		TLSClientConfig:   tlsConfig,
+		Dial:              shared.RFC3493Dialer,
+		Proxy:             d.proxy,
+		DisableKeepAlives: true,
+	}
+	myhttp := http.Client{
+		Transport: tr,
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -190,7 +199,7 @@ func (d *Daemon) httpGetFile(url string, certificate string) (*http.Response, er
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", version.UserAgent)
+	req.Header.Set("User-Agent", shared.UserAgent)
 
 	raw, err := myhttp.Do(req)
 	if err != nil {
@@ -198,7 +207,7 @@ func (d *Daemon) httpGetFile(url string, certificate string) (*http.Response, er
 	}
 
 	if raw.StatusCode != 200 {
-		_, err := lxd.HoistResponse(raw, api.ErrorResponse)
+		_, err := lxd.HoistResponse(raw, lxd.Error)
 		if err != nil {
 			return nil, err
 		}
@@ -525,7 +534,7 @@ func (d *Daemon) UpdateHTTPsPort(newAddress string) error {
 			return fmt.Errorf("cannot listen on https socket: %v", err)
 		}
 
-		d.tomb.Go(func() error { return http.Serve(tcpl, &lxdHttpServer{d.mux, d}) })
+		d.tomb.Go(func() error { return http.Serve(tcpl, d.mux) })
 		d.TCPSocket = &Socket{Socket: tcpl, CloseOnExit: true}
 	}
 
@@ -567,13 +576,13 @@ func (d *Daemon) Init() error {
 
 	/* Print welcome message */
 	if d.MockMode {
-		shared.LogInfo(fmt.Sprintf("LXD %s is starting in mock mode", version.Version),
+		shared.LogInfo(fmt.Sprintf("LXD %s is starting in mock mode", shared.Version),
 			log.Ctx{"path": shared.VarPath("")})
 	} else if d.SetupMode {
-		shared.LogInfo(fmt.Sprintf("LXD %s is starting in setup mode", version.Version),
+		shared.LogInfo(fmt.Sprintf("LXD %s is starting in setup mode", shared.Version),
 			log.Ctx{"path": shared.VarPath("")})
 	} else {
-		shared.LogInfo(fmt.Sprintf("LXD %s is starting in normal mode", version.Version),
+		shared.LogInfo(fmt.Sprintf("LXD %s is starting in normal mode", shared.Version),
 			log.Ctx{"path": shared.VarPath("")})
 	}
 
@@ -715,18 +724,18 @@ func (d *Daemon) Init() error {
 	/* Get the list of supported architectures */
 	var architectures = []int{}
 
-	architectureName, err := osarch.ArchitectureGetLocal()
+	architectureName, err := shared.ArchitectureGetLocal()
 	if err != nil {
 		return err
 	}
 
-	architecture, err := osarch.ArchitectureId(architectureName)
+	architecture, err := shared.ArchitectureId(architectureName)
 	if err != nil {
 		return err
 	}
 	architectures = append(architectures, architecture)
 
-	personalities, err := osarch.ArchitecturePersonalities(architecture)
+	personalities, err := shared.ArchitecturePersonalities(architecture)
 	if err != nil {
 		return err
 	}
@@ -739,9 +748,6 @@ func (d *Daemon) Init() error {
 	d.lxcpath = shared.VarPath("containers")
 
 	/* Make sure all our directories are available */
-	if err := os.MkdirAll(shared.VarPath(), 0711); err != nil {
-		return err
-	}
 	if err := os.MkdirAll(shared.CachePath(), 0700); err != nil {
 		return err
 	}

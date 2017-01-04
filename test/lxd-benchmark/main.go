@@ -10,7 +10,6 @@ import (
 
 	"github.com/lxc/lxd"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
 	"github.com/lxc/lxd/shared/gnuflag"
 )
 
@@ -259,7 +258,7 @@ func deleteContainers(c *lxd.Client) error {
 		return err
 	}
 
-	containers := []api.Container{}
+	containers := []shared.ContainerInfo{}
 	for _, container := range allContainers {
 		if container.Config["user.lxd-benchmark"] != "true" {
 			continue
@@ -278,7 +277,7 @@ func deleteContainers(c *lxd.Client) error {
 	wgBatch := sync.WaitGroup{}
 	nextStat := batch
 
-	deleteContainer := func(ct api.Container) {
+	deleteContainer := func(ct shared.ContainerInfo) {
 		defer wgBatch.Done()
 
 		// Stop

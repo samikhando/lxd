@@ -8,10 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/osarch"
 )
 
 func containerPatch(d *Daemon, r *http.Request) Response {
@@ -42,7 +39,7 @@ func containerPatch(d *Daemon, r *http.Request) Response {
 		return BadRequest(err)
 	}
 
-	req := api.ContainerPut{}
+	req := containerPutReq{}
 	if err := json.NewDecoder(rdr2).Decode(&req); err != nil {
 		return BadRequest(err)
 	}
@@ -57,7 +54,7 @@ func containerPatch(d *Daemon, r *http.Request) Response {
 	if err != nil {
 		architecture = c.Architecture()
 	} else {
-		architecture, err = osarch.ArchitectureId(req.Architecture)
+		architecture, err = shared.ArchitectureId(req.Architecture)
 		if err != nil {
 			architecture = 0
 		}

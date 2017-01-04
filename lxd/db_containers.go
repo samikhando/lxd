@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lxc/lxd/lxd/types"
 	"github.com/lxc/lxd/shared"
 
 	log "gopkg.in/inconshreveable/log15.v2"
@@ -109,7 +108,7 @@ func dbContainerGet(db *sql.DB, name string) (containerArgs, error) {
 	args.Profiles = profiles
 
 	/* get container_devices */
-	args.Devices = types.Devices{}
+	args.Devices = shared.Devices{}
 	newdevs, err := dbDevices(db, name, false)
 	if err != nil {
 		return args, err

@@ -13,7 +13,6 @@ import (
 
 	"github.com/lxc/lxd"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
 	"github.com/lxc/lxd/shared/i18n"
 	"github.com/lxc/lxd/shared/termios"
 )
@@ -49,23 +48,24 @@ func (c *networkCmd) usage() string {
 	return i18n.G(
 		`Manage networks.
 
-lxc network list [<remote>:]                              List available networks.
-lxc network show [<remote>:]<network>                     Show details of a network.
-lxc network create [<remote>:]<network> [key=value...]    Create a network.
-lxc network get [<remote>:]<network> <key>                Get network configuration.
-lxc network set [<remote>:]<network> <key> <value>        Set network configuration.
-lxc network unset [<remote>:]<network> <key>              Unset network configuration.
-lxc network delete [<remote>:]<network>                   Delete a network.
-lxc network edit [<remote>:]<network>
+lxc network list                               List available networks.
+lxc network show <network>                     Show details of a network.
+lxc network create <network> [key=value]...    Create a network.
+lxc network get <network> <key>                Get network configuration.
+lxc network set <network> <key> <value>        Set network configuration.
+lxc network unset <network> <key>              Unset network configuration.
+lxc network delete <network>                   Delete a network.
+lxc network edit <network>
     Edit network, either by launching external editor or reading STDIN.
     Example: lxc network edit <network> # launch editor
              cat network.yaml | lxc network edit <network> # read from network.yaml
 
-lxc network attach [<remote>:]<network> <container> [device name]
-lxc network attach-profile [<remote>:]<network> <profile> [device name]
+lxc network attach <network> <container> [device name]
+lxc network attach-profile <network> <profile> [device name]
 
-lxc network detach [<remote>:]<network> <container> [device name]
-lxc network detach-profile [<remote>:]<network> <container> [device name]`)
+lxc network detach <network> <container> [device name]
+lxc network detach-profile <network> <container> [device name]
+`)
 }
 
 func (c *networkCmd) flags() {}
@@ -304,7 +304,7 @@ func (c *networkCmd) doNetworkEdit(client *lxd.Client, name string) error {
 			return err
 		}
 
-		newdata := api.NetworkPut{}
+		newdata := shared.NetworkConfig{}
 		err = yaml.Unmarshal(contents, &newdata)
 		if err != nil {
 			return err
@@ -331,7 +331,7 @@ func (c *networkCmd) doNetworkEdit(client *lxd.Client, name string) error {
 
 	for {
 		// Parse the text received from the editor
-		newdata := api.NetworkPut{}
+		newdata := shared.NetworkConfig{}
 		err = yaml.Unmarshal(content, &newdata)
 		if err == nil {
 			err = client.NetworkPut(name, newdata)
@@ -459,7 +459,7 @@ func (c *networkCmd) doNetworkSet(client *lxd.Client, name string, args []string
 
 	network.Config[key] = value
 
-	return client.NetworkPut(name, network.Writable())
+	return client.NetworkPut(name, network)
 }
 
 func (c *networkCmd) doNetworkShow(client *lxd.Client, name string) error {

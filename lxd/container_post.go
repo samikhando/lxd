@@ -6,9 +6,12 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-
-	"github.com/lxc/lxd/shared/api"
 )
+
+type containerPostBody struct {
+	Migration bool   `json:"migration"`
+	Name      string `json:"name"`
+}
 
 func containerPost(d *Daemon, r *http.Request) Response {
 	name := mux.Vars(r)["name"]
@@ -22,7 +25,7 @@ func containerPost(d *Daemon, r *http.Request) Response {
 		return InternalError(err)
 	}
 
-	body := api.ContainerPost{}
+	body := containerPostBody{}
 	if err := json.Unmarshal(buf, &body); err != nil {
 		return BadRequest(err)
 	}

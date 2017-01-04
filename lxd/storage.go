@@ -13,10 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/lxc/lxd/lxd/types"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/ioprogress"
 	"github.com/lxc/lxd/shared/logging"
 
 	log "gopkg.in/inconshreveable/log15.v2"
@@ -276,7 +273,7 @@ func storageForFilename(d *Daemon, filename string) (storage, error) {
 	return newStorageWithConfig(d, storageType, config)
 }
 
-func storageForImage(d *Daemon, imgInfo *api.Image) (storage, error) {
+func storageForImage(d *Daemon, imgInfo *shared.ImageInfo) (storage, error) {
 	imageFilename := shared.VarPath("images", imgInfo.Fingerprint)
 	return storageForFilename(d, imageFilename)
 }
@@ -656,7 +653,7 @@ func snapshotProtobufToContainerArgs(containerName string, snap *Snapshot) conta
 		config[ent.GetKey()] = ent.GetValue()
 	}
 
-	devices := types.Devices{}
+	devices := shared.Devices{}
 	for _, ent := range snap.LocalDevices {
 		props := map[string]string{}
 		for _, prop := range ent.Config {
@@ -815,9 +812,9 @@ func progressWrapperRender(op *operation, key string, description string, progre
 		meta = make(map[string]interface{})
 	}
 
-	progress := fmt.Sprintf("%s (%s/s)", shared.GetByteSizeString(progressInt, 2), shared.GetByteSizeString(speedInt, 2))
+	progress := fmt.Sprintf("%s (%s/s)", shared.GetByteSizeString(progressInt), shared.GetByteSizeString(speedInt))
 	if description != "" {
-		progress = fmt.Sprintf("%s: %s (%s/s)", description, shared.GetByteSizeString(progressInt, 2), shared.GetByteSizeString(speedInt, 2))
+		progress = fmt.Sprintf("%s: %s (%s/s)", description, shared.GetByteSizeString(progressInt), shared.GetByteSizeString(speedInt))
 	}
 
 	if meta[key] != progress {
@@ -836,9 +833,9 @@ func StorageProgressReader(op *operation, key string, description string) func(i
 			progressWrapperRender(op, key, description, progressInt, speedInt)
 		}
 
-		readPipe := &ioprogress.ProgressReader{
+		readPipe := &shared.ProgressReader{
 			ReadCloser: reader,
-			Tracker: &ioprogress.ProgressTracker{
+			Tracker: &shared.ProgressTracker{
 				Handler: progress,
 			},
 		}
@@ -857,9 +854,9 @@ func StorageProgressWriter(op *operation, key string, description string) func(i
 			progressWrapperRender(op, key, description, progressInt, speedInt)
 		}
 
-		writePipe := &ioprogress.ProgressWriter{
+		writePipe := &shared.ProgressWriter{
 			WriteCloser: writer,
-			Tracker: &ioprogress.ProgressTracker{
+			Tracker: &shared.ProgressTracker{
 				Handler: progress,
 			},
 		}

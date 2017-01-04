@@ -34,20 +34,22 @@ func (c *fileCmd) showByDefault() bool {
 
 func (c *fileCmd) usage() string {
 	return i18n.G(
-		`Manage files in a container.
+		`Manage files on a container.
 
-lxc file pull [-r|--recursive] [<remote>:]<container> [[<remote>:]<container>...] <target path>
-lxc file push [-r|--recursive] [-p|--create-dirs] [--uid=UID] [--gid=GID] [--mode=MODE] <source path> [<source path>...] [<remote>:]<container>
-lxc file edit [<remote>:]<container>/<path>
+lxc file pull [-r|--recursive] <source> [<source>...] <target>
+lxc file push [-r|--recursive] [-p|--create-dirs] [--uid=UID] [--gid=GID] [--mode=MODE] <source> [<source>...] <target>
+lxc file edit <file>
 
 <source> in the case of pull, <target> in the case of push and <file> in the case of edit are <container name>/<path>
 
 Examples:
+
 To push /etc/hosts into the container foo:
-    lxc file push /etc/hosts foo/etc/hosts
+  lxc file push /etc/hosts foo/etc/hosts
 
 To pull /etc/hosts from the container:
-    lxc file pull foo/etc/hosts .`)
+  lxc file pull foo/etc/hosts .
+`)
 }
 
 func (c *fileCmd) flags() {
@@ -120,18 +122,7 @@ func (c *fileCmd) push(config *lxd.Config, send_file_perms bool, args []string) 
 		}
 
 		if c.mkdirs {
-			f, err := os.Open(args[0])
-			if err != nil {
-				return err
-			}
-			finfo, err := f.Stat()
-			f.Close()
-			if err != nil {
-				return err
-			}
-
-			mode, uid, gid := shared.GetOwnerMode(finfo)
-			if err := d.MkdirP(container, targetPath, mode, uid, gid); err != nil {
+			if err := d.MkdirP(container, targetPath, mode); err != nil {
 				return err
 			}
 		}
@@ -184,39 +175,14 @@ func (c *fileCmd) push(config *lxd.Config, send_file_perms bool, args []string) 
 		}
 
 		if c.mkdirs {
-			finfo, err := f.Stat()
-			if err != nil {
-				return err
-			}
-
-			if c.mode == "" || c.uid == -1 || c.gid == -1 {
-				dMode, dUid, dGid := shared.GetOwnerMode(finfo)
-				if c.mode == "" {
-					mode = dMode
-				}
-
-				if c.uid == -1 {
-					uid = dUid
-				}
-
-				if c.gid == -1 {
-					gid = dGid
-				}
-			}
-
-			if err := d.MkdirP(container, path.Dir(fpath), mode, uid, gid); err != nil {
+			if err := d.MkdirP(container, path.Dir(fpath), mode); err != nil {
 				return err
 			}
 		}
 
 		if send_file_perms {
 			if c.mode == "" || c.uid == -1 || c.gid == -1 {
-				finfo, err := f.Stat()
-				if err != nil {
-					return err
-				}
-
-				fMode, fUid, fGid := shared.GetOwnerMode(finfo)
+				fMode, fUid, fGid, err := c.getOwner(f)
 				if err != nil {
 					return err
 				}

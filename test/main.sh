@@ -103,11 +103,7 @@ spawn_lxd() {
   fi
 
   echo "==> Setting up networking"
-  bad=0
-  ip link show lxdbr0 || bad=1
-  if [ "${bad}" -eq 0 ]; then
-    LXD_DIR="${lxddir}" lxc network attach-profile lxdbr0 default eth0
-  fi
+  LXD_DIR="${lxddir}" lxc network attach-profile lxdbr0 default eth0
 
   echo "==> Configuring storage backend"
   "$LXD_BACKEND"_configure "${lxddir}"

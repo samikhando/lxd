@@ -16,8 +16,6 @@ import (
 	log "gopkg.in/inconshreveable/log15.v2"
 
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/version"
 )
 
 // API endpoints
@@ -34,10 +32,10 @@ func networksGet(d *Daemon, r *http.Request) Response {
 	}
 
 	resultString := []string{}
-	resultMap := []api.Network{}
+	resultMap := []shared.NetworkConfig{}
 	for _, iface := range ifs {
 		if recursion == 0 {
-			resultString = append(resultString, fmt.Sprintf("/%s/networks/%s", version.APIVersion, iface))
+			resultString = append(resultString, fmt.Sprintf("/%s/networks/%s", shared.APIVersion, iface))
 		} else {
 			net, err := doNetworkGet(d, iface)
 			if err != nil {
@@ -55,7 +53,7 @@ func networksGet(d *Daemon, r *http.Request) Response {
 }
 
 func networksPost(d *Daemon, r *http.Request) Response {
-	req := api.NetworksPost{}
+	req := shared.NetworkConfig{}
 
 	// Parse the request
 	err := json.NewDecoder(r.Body).Decode(&req)
@@ -144,7 +142,7 @@ func networksPost(d *Daemon, r *http.Request) Response {
 		return InternalError(err)
 	}
 
-	return SyncResponseLocation(true, nil, fmt.Sprintf("/%s/networks/%s", version.APIVersion, req.Name))
+	return SyncResponseLocation(true, nil, fmt.Sprintf("/%s/networks/%s", shared.APIVersion, req.Name))
 }
 
 var networksCmd = Command{name: "networks", get: networksGet, post: networksPost}
@@ -162,18 +160,18 @@ func networkGet(d *Daemon, r *http.Request) Response {
 	return SyncResponseETag(true, &n, etag)
 }
 
-func doNetworkGet(d *Daemon, name string) (api.Network, error) {
+func doNetworkGet(d *Daemon, name string) (shared.NetworkConfig, error) {
 	// Get some information
 	osInfo, _ := net.InterfaceByName(name)
 	_, dbInfo, _ := dbNetworkGet(d.db, name)
 
 	// Sanity check
 	if osInfo == nil && dbInfo == nil {
-		return api.Network{}, os.ErrNotExist
+		return shared.NetworkConfig{}, os.ErrNotExist
 	}
 
 	// Prepare the response
-	n := api.Network{}
+	n := shared.NetworkConfig{}
 	n.Name = name
 	n.UsedBy = []string{}
 	n.Config = map[string]string{}
@@ -181,17 +179,17 @@ func doNetworkGet(d *Daemon, name string) (api.Network, error) {
 	// Look for containers using the interface
 	cts, err := dbContainersList(d.db, cTypeRegular)
 	if err != nil {
-		return api.Network{}, err
+		return shared.NetworkConfig{}, err
 	}
 
 	for _, ct := range cts {
 		c, err := containerLoadByName(d, ct)
 		if err != nil {
-			return api.Network{}, err
+			return shared.NetworkConfig{}, err
 		}
 
 		if networkIsInUse(c, n.Name) {
-			n.UsedBy = append(n.UsedBy, fmt.Sprintf("/%s/containers/%s", version.APIVersion, ct))
+			n.UsedBy = append(n.UsedBy, fmt.Sprintf("/%s/containers/%s", shared.APIVersion, ct))
 		}
 	}
 
@@ -246,7 +244,7 @@ func networkDelete(d *Daemon, r *http.Request) Response {
 
 func networkPost(d *Daemon, r *http.Request) Response {
 	name := mux.Vars(r)["name"]
-	req := api.NetworkPost{}
+	req := shared.NetworkConfig{}
 
 	// Parse the request
 	err := json.NewDecoder(r.Body).Decode(&req)
@@ -286,7 +284,7 @@ func networkPost(d *Daemon, r *http.Request) Response {
 		return SmartError(err)
 	}
 
-	return SyncResponseLocation(true, nil, fmt.Sprintf("/%s/networks/%s", version.APIVersion, req.Name))
+	return SyncResponseLocation(true, nil, fmt.Sprintf("/%s/networks/%s", shared.APIVersion, req.Name))
 }
 
 func networkPut(d *Daemon, r *http.Request) Response {
@@ -306,7 +304,7 @@ func networkPut(d *Daemon, r *http.Request) Response {
 		return PreconditionFailed(err)
 	}
 
-	req := api.NetworkPut{}
+	req := shared.NetworkConfig{}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return BadRequest(err)
 	}
@@ -331,7 +329,7 @@ func networkPatch(d *Daemon, r *http.Request) Response {
 		return PreconditionFailed(err)
 	}
 
-	req := api.NetworkPut{}
+	req := shared.NetworkConfig{}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return BadRequest(err)
 	}
@@ -371,7 +369,7 @@ func doNetworkUpdate(d *Daemon, name string, oldConfig map[string]string, newCon
 		return NotFound
 	}
 
-	err = n.Update(api.NetworkPut{Config: newConfig})
+	err = n.Update(shared.NetworkConfig{Config: newConfig})
 	if err != nil {
 		return SmartError(err)
 	}
@@ -1157,7 +1155,7 @@ func (n *network) Start() error {
 		}
 
 		// Update the static leases
-		err = networkUpdateStatic(n.daemon, n.name)
+		err = networkUpdateStatic(n.daemon)
 		if err != nil {
 			return err
 		}
@@ -1235,7 +1233,7 @@ func (n *network) Stop() error {
 	return nil
 }
 
-func (n *network) Update(newNetwork api.NetworkPut) error {
+func (n *network) Update(newNetwork shared.NetworkConfig) error {
 	err := networkFillAuto(newNetwork.Config)
 	if err != nil {
 		return err

@@ -6,9 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lxc/lxd/lxd/types"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
 	"github.com/lxc/lxd/shared/logging"
 )
 
@@ -402,7 +400,7 @@ INSERT INTO containers_config (container_id, key, value) VALUES (1, 'thekey', 't
 func Test_dbImageGet_finds_image_for_fingerprint(t *testing.T) {
 	var db *sql.DB
 	var err error
-	var result *api.Image
+	var result *shared.ImageInfo
 
 	db = createTestDb(t)
 	defer db.Close()
@@ -421,16 +419,16 @@ func Test_dbImageGet_finds_image_for_fingerprint(t *testing.T) {
 		t.Fatal("Filename should be set.")
 	}
 
-	if result.CreatedAt.UTC() != time.Unix(1431547174, 0).UTC() {
-		t.Fatal(fmt.Sprintf("%s != %s", result.CreatedAt, time.Unix(1431547174, 0)))
+	if result.CreationDate.UTC() != time.Unix(1431547174, 0).UTC() {
+		t.Fatal(fmt.Sprintf("%s != %s", result.CreationDate, time.Unix(1431547174, 0)))
 	}
 
-	if result.ExpiresAt.UTC() != time.Unix(1431547175, 0).UTC() { // It was short lived
-		t.Fatal(fmt.Sprintf("%s != %s", result.ExpiresAt, time.Unix(1431547175, 0)))
+	if result.ExpiryDate.UTC() != time.Unix(1431547175, 0).UTC() { // It was short lived
+		t.Fatal(fmt.Sprintf("%s != %s", result.ExpiryDate, time.Unix(1431547175, 0)))
 	}
 
-	if result.UploadedAt.UTC() != time.Unix(1431547176, 0).UTC() {
-		t.Fatal(fmt.Sprintf("%s != %s", result.UploadedAt, time.Unix(1431547176, 0)))
+	if result.UploadDate.UTC() != time.Unix(1431547176, 0).UTC() {
+		t.Fatal(fmt.Sprintf("%s != %s", result.UploadDate, time.Unix(1431547176, 0)))
 	}
 }
 
@@ -582,9 +580,9 @@ func Test_dbContainerProfiles(t *testing.T) {
 func Test_dbDevices_profiles(t *testing.T) {
 	var db *sql.DB
 	var err error
-	var result types.Devices
-	var subresult types.Device
-	var expected types.Device
+	var result shared.Devices
+	var subresult shared.Device
+	var expected shared.Device
 
 	db = createTestDb(t)
 	defer db.Close()
@@ -594,7 +592,7 @@ func Test_dbDevices_profiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected = types.Device{"type": "nic", "devicekey": "devicevalue"}
+	expected = shared.Device{"type": "nic", "devicekey": "devicevalue"}
 	subresult = result["devicename"]
 
 	for key, value := range expected {
@@ -608,9 +606,9 @@ func Test_dbDevices_profiles(t *testing.T) {
 func Test_dbDevices_containers(t *testing.T) {
 	var db *sql.DB
 	var err error
-	var result types.Devices
-	var subresult types.Device
-	var expected types.Device
+	var result shared.Devices
+	var subresult shared.Device
+	var expected shared.Device
 
 	db = createTestDb(t)
 	defer db.Close()
@@ -620,7 +618,7 @@ func Test_dbDevices_containers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected = types.Device{"type": "nic", "configkey": "configvalue"}
+	expected = shared.Device{"type": "nic", "configkey": "configvalue"}
 	subresult = result["somename"]
 
 	for key, value := range expected {

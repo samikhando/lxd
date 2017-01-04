@@ -9,8 +9,14 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
 )
+
+type containerStatePutReq struct {
+	Action   string `json:"action"`
+	Timeout  int    `json:"timeout"`
+	Force    bool   `json:"force"`
+	Stateful bool   `json:"stateful"`
+}
 
 func containerState(d *Daemon, r *http.Request) Response {
 	name := mux.Vars(r)["name"]
@@ -30,7 +36,7 @@ func containerState(d *Daemon, r *http.Request) Response {
 func containerStatePut(d *Daemon, r *http.Request) Response {
 	name := mux.Vars(r)["name"]
 
-	raw := api.ContainerStatePut{}
+	raw := containerStatePutReq{}
 
 	// We default to -1 (i.e. no timeout) here instead of 0 (instant
 	// timeout).

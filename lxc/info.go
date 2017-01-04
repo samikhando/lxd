@@ -26,10 +26,10 @@ func (c *infoCmd) usage() string {
 		`List information on LXD servers and containers.
 
 For a container:
-    lxc info [<remote:>]<container> [--show-log]
+ lxc info [<remote>:]container [--show-log]
 
 For a server:
-    lxc info [<remote:>]`)
+ lxc info [<remote>:]`)
 }
 
 func (c *infoCmd) flags() {
@@ -91,8 +91,8 @@ func (c *infoCmd) containerInfo(d *lxd.Client, name string, showLog bool) error 
 		fmt.Printf(i18n.G("Remote: %s")+"\n", d.Remote.Addr)
 	}
 	fmt.Printf(i18n.G("Architecture: %s")+"\n", ct.Architecture)
-	if ct.CreatedAt.UTC().Unix() != 0 {
-		fmt.Printf(i18n.G("Created: %s")+"\n", ct.CreatedAt.UTC().Format(layout))
+	if ct.CreationDate.UTC().Unix() != 0 {
+		fmt.Printf(i18n.G("Created: %s")+"\n", ct.CreationDate.UTC().Format(layout))
 	}
 
 	fmt.Printf(i18n.G("Status: %s")+"\n", ct.Status)
@@ -134,7 +134,7 @@ func (c *infoCmd) containerInfo(d *lxd.Client, name string, showLog bool) error 
 		if cs.Disk != nil {
 			for entry, disk := range cs.Disk {
 				if disk.Usage != 0 {
-					diskInfo += fmt.Sprintf("    %s: %s\n", entry, shared.GetByteSizeString(disk.Usage, 2))
+					diskInfo += fmt.Sprintf("    %s: %s\n", entry, shared.GetByteSizeString(disk.Usage))
 				}
 			}
 		}
@@ -158,19 +158,19 @@ func (c *infoCmd) containerInfo(d *lxd.Client, name string, showLog bool) error 
 		// Memory usage
 		memoryInfo := ""
 		if cs.Memory.Usage != 0 {
-			memoryInfo += fmt.Sprintf("    %s: %s\n", i18n.G("Memory (current)"), shared.GetByteSizeString(cs.Memory.Usage, 2))
+			memoryInfo += fmt.Sprintf("    %s: %s\n", i18n.G("Memory (current)"), shared.GetByteSizeString(cs.Memory.Usage))
 		}
 
 		if cs.Memory.UsagePeak != 0 {
-			memoryInfo += fmt.Sprintf("    %s: %s\n", i18n.G("Memory (peak)"), shared.GetByteSizeString(cs.Memory.UsagePeak, 2))
+			memoryInfo += fmt.Sprintf("    %s: %s\n", i18n.G("Memory (peak)"), shared.GetByteSizeString(cs.Memory.UsagePeak))
 		}
 
 		if cs.Memory.SwapUsage != 0 {
-			memoryInfo += fmt.Sprintf("    %s: %s\n", i18n.G("Swap (current)"), shared.GetByteSizeString(cs.Memory.SwapUsage, 2))
+			memoryInfo += fmt.Sprintf("    %s: %s\n", i18n.G("Swap (current)"), shared.GetByteSizeString(cs.Memory.SwapUsage))
 		}
 
 		if cs.Memory.SwapUsagePeak != 0 {
-			memoryInfo += fmt.Sprintf("    %s: %s\n", i18n.G("Swap (peak)"), shared.GetByteSizeString(cs.Memory.SwapUsagePeak, 2))
+			memoryInfo += fmt.Sprintf("    %s: %s\n", i18n.G("Swap (peak)"), shared.GetByteSizeString(cs.Memory.SwapUsagePeak))
 		}
 
 		if memoryInfo != "" {
@@ -183,8 +183,8 @@ func (c *infoCmd) containerInfo(d *lxd.Client, name string, showLog bool) error 
 		if cs.Network != nil {
 			for netName, net := range cs.Network {
 				networkInfo += fmt.Sprintf("    %s:\n", netName)
-				networkInfo += fmt.Sprintf("      %s: %s\n", i18n.G("Bytes received"), shared.GetByteSizeString(net.Counters.BytesReceived, 2))
-				networkInfo += fmt.Sprintf("      %s: %s\n", i18n.G("Bytes sent"), shared.GetByteSizeString(net.Counters.BytesSent, 2))
+				networkInfo += fmt.Sprintf("      %s: %s\n", i18n.G("Bytes received"), shared.GetByteSizeString(net.Counters.BytesReceived))
+				networkInfo += fmt.Sprintf("      %s: %s\n", i18n.G("Bytes sent"), shared.GetByteSizeString(net.Counters.BytesSent))
 				networkInfo += fmt.Sprintf("      %s: %d\n", i18n.G("Packets received"), net.Counters.PacketsReceived)
 				networkInfo += fmt.Sprintf("      %s: %d\n", i18n.G("Packets sent"), net.Counters.PacketsSent)
 			}

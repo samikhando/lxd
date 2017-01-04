@@ -12,8 +12,6 @@ import (
 	"github.com/pborman/uuid"
 
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/version"
 )
 
 var operationsLock sync.Mutex
@@ -40,7 +38,7 @@ type operation struct {
 	class     operationClass
 	createdAt time.Time
 	updatedAt time.Time
-	status    api.StatusCode
+	status    shared.StatusCode
 	url       string
 	resources map[string][]string
 	metadata  map[string]interface{}
@@ -98,21 +96,21 @@ func (op *operation) done() {
 }
 
 func (op *operation) Run() (chan error, error) {
-	if op.status != api.Pending {
+	if op.status != shared.Pending {
 		return nil, fmt.Errorf("Only pending operations can be started")
 	}
 
 	chanRun := make(chan error, 1)
 
 	op.lock.Lock()
-	op.status = api.Running
+	op.status = shared.Running
 
 	if op.onRun != nil {
 		go func(op *operation, chanRun chan error) {
 			err := op.onRun(op)
 			if err != nil {
 				op.lock.Lock()
-				op.status = api.Failure
+				op.status = shared.Failure
 				op.err = SmartError(err).String()
 				op.lock.Unlock()
 				op.done()
@@ -126,7 +124,7 @@ func (op *operation) Run() (chan error, error) {
 			}
 
 			op.lock.Lock()
-			op.status = api.Success
+			op.status = shared.Success
 			op.lock.Unlock()
 			op.done()
 			chanRun <- nil
@@ -148,7 +146,7 @@ func (op *operation) Run() (chan error, error) {
 }
 
 func (op *operation) Cancel() (chan error, error) {
-	if op.status != api.Running {
+	if op.status != shared.Running {
 		return nil, fmt.Errorf("Only running operations can be cancelled")
 	}
 
@@ -160,11 +158,11 @@ func (op *operation) Cancel() (chan error, error) {
 
 	op.lock.Lock()
 	oldStatus := op.status
-	op.status = api.Cancelling
+	op.status = shared.Cancelling
 	op.lock.Unlock()
 
 	if op.onCancel != nil {
-		go func(op *operation, oldStatus api.StatusCode, chanCancel chan error) {
+		go func(op *operation, oldStatus shared.StatusCode, chanCancel chan error) {
 			err := op.onCancel(op)
 			if err != nil {
 				op.lock.Lock()
@@ -179,7 +177,7 @@ func (op *operation) Cancel() (chan error, error) {
 			}
 
 			op.lock.Lock()
-			op.status = api.Cancelled
+			op.status = shared.Cancelled
 			op.lock.Unlock()
 			op.done()
 			chanCancel <- nil
@@ -196,7 +194,7 @@ func (op *operation) Cancel() (chan error, error) {
 
 	if op.onCancel == nil {
 		op.lock.Lock()
-		op.status = api.Cancelled
+		op.status = shared.Cancelled
 		op.lock.Unlock()
 		op.done()
 		chanCancel <- nil
@@ -214,7 +212,7 @@ func (op *operation) Connect(r *http.Request, w http.ResponseWriter) (chan error
 		return nil, fmt.Errorf("Only websocket operations can be connected")
 	}
 
-	if op.status != api.Running {
+	if op.status != shared.Running {
 		return nil, fmt.Errorf("Only running operations can be connected")
 	}
 
@@ -246,7 +244,7 @@ func (op *operation) mayCancel() bool {
 	return op.onCancel != nil || op.class == operationClassToken
 }
 
-func (op *operation) Render() (string, *api.Operation, error) {
+func (op *operation) Render() (string, *shared.Operation, error) {
 	// Setup the resource URLs
 	resources := op.resources
 	if resources != nil {
@@ -254,22 +252,24 @@ func (op *operation) Render() (string, *api.Operation, error) {
 		for key, value := range resources {
 			var values []string
 			for _, c := range value {
-				values = append(values, fmt.Sprintf("/%s/%s/%s", version.APIVersion, key, c))
+				values = append(values, fmt.Sprintf("/%s/%s/%s", shared.APIVersion, key, c))
 			}
 			tmpResources[key] = values
 		}
 		resources = tmpResources
 	}
 
-	return op.url, &api.Operation{
-		ID:         op.id,
+	md := shared.Jmap(op.metadata)
+
+	return op.url, &shared.Operation{
+		Id:         op.id,
 		Class:      op.class.String(),
 		CreatedAt:  op.createdAt,
 		UpdatedAt:  op.updatedAt,
 		Status:     op.status.String(),
 		StatusCode: op.status,
 		Resources:  resources,
-		Metadata:   op.metadata,
+		Metadata:   &md,
 		MayCancel:  op.mayCancel(),
 		Err:        op.err,
 	}, nil
@@ -307,7 +307,7 @@ func (op *operation) WaitFinal(timeout int) (bool, error) {
 }
 
 func (op *operation) UpdateResources(opResources map[string][]string) error {
-	if op.status != api.Pending && op.status != api.Running {
+	if op.status != shared.Pending && op.status != shared.Running {
 		return fmt.Errorf("Only pending or running operations can be updated")
 	}
 
@@ -328,7 +328,7 @@ func (op *operation) UpdateResources(opResources map[string][]string) error {
 }
 
 func (op *operation) UpdateMetadata(opMetadata interface{}) error {
-	if op.status != api.Pending && op.status != api.Running {
+	if op.status != shared.Pending && op.status != shared.Running {
 		return fmt.Errorf("Only pending or running operations can be updated")
 	}
 
@@ -364,8 +364,8 @@ func operationCreate(opClass operationClass, opResources map[string][]string, op
 	op.class = opClass
 	op.createdAt = time.Now()
 	op.updatedAt = op.createdAt
-	op.status = api.Pending
-	op.url = fmt.Sprintf("/%s/operations/%s", version.APIVersion, op.id)
+	op.status = shared.Pending
+	op.url = fmt.Sprintf("/%s/operations/%s", shared.APIVersion, op.id)
 	op.resources = opResources
 	op.chanDone = make(chan error)
 
@@ -471,7 +471,7 @@ func operationsAPIGet(d *Daemon, r *http.Request) Response {
 		_, ok := md[status]
 		if !ok {
 			if recursion {
-				md[status] = make([]*api.Operation, 0)
+				md[status] = make([]*shared.Operation, 0)
 			} else {
 				md[status] = make([]string, 0)
 			}
@@ -487,7 +487,7 @@ func operationsAPIGet(d *Daemon, r *http.Request) Response {
 			continue
 		}
 
-		md[status] = append(md[status].([]*api.Operation), body)
+		md[status] = append(md[status].([]*shared.Operation), body)
 	}
 
 	return SyncResponse(true, md)
@@ -543,7 +543,7 @@ func (r *operationWebSocket) String() string {
 		return fmt.Sprintf("error: %s", err)
 	}
 
-	return md.ID
+	return md.Id
 }
 
 func operationAPIWebsocketGet(d *Daemon, r *http.Request) Response {

@@ -16,7 +16,6 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/version"
 )
 
 type devLxdResponse struct {
@@ -75,7 +74,7 @@ var handlers = []devLxdHandler{
 		return okResponse([]string{"/1.0"}, "json")
 	}},
 	devLxdHandler{"/1.0", func(c container, r *http.Request) *devLxdResponse {
-		return okResponse(shared.Jmap{"api_version": version.APIVersion}, "json")
+		return okResponse(shared.Jmap{"api_version": shared.APIVersion}, "json")
 	}},
 	configGet,
 	configKeyGet,

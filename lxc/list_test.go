@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
 )
 
 func TestDotPrefixMatch(t *testing.T) {
@@ -26,7 +25,7 @@ func TestDotPrefixMatch(t *testing.T) {
 func TestShouldShow(t *testing.T) {
 	list := listCmd{}
 
-	state := &api.Container{
+	state := &shared.ContainerInfo{
 		Name: "foo",
 		ExpandedConfig: map[string]string{
 			"security.privileged": "1",

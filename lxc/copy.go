@@ -6,7 +6,6 @@ import (
 
 	"github.com/lxc/lxd"
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
 	"github.com/lxc/lxd/shared/gnuflag"
 	"github.com/lxc/lxd/shared/i18n"
 )
@@ -23,9 +22,9 @@ func (c *copyCmd) showByDefault() bool {
 
 func (c *copyCmd) usage() string {
 	return i18n.G(
-		`Copy containers within or in between LXD instances.
+		`Copy containers within or in between lxd instances.
 
-lxc copy [<remote>:]<source>[/<snapshot>] [[<remote>:]<destination>] [--ephemeral|e] [--profile|-p <profile>...] [--config|-c <key=value>...]`)
+lxc copy [remote:]<source container> [[remote:]<destination container>] [--ephemeral|e] [--profile|-p <profile>...] [--config|-c <key=value>...]`)
 }
 
 func (c *copyCmd) flags() {
@@ -56,7 +55,7 @@ func (c *copyCmd) copyContainer(config *lxd.Config, sourceResource string, destR
 
 	var status struct {
 		Architecture string
-		Devices      map[string]map[string]string
+		Devices      shared.Devices
 		Config       map[string]string
 		Profiles     []string
 	}
@@ -190,7 +189,7 @@ func (c *copyCmd) copyContainer(config *lxd.Config, sourceResource string, destR
 		return err
 	}
 
-	for k, v := range op.Metadata {
+	for k, v := range *op.Metadata {
 		secrets[k] = v.(string)
 	}
 
@@ -208,7 +207,7 @@ func (c *copyCmd) copyContainer(config *lxd.Config, sourceResource string, destR
 	 * report that.
 	 */
 	for _, addr := range addresses {
-		var migration *api.Response
+		var migration *lxd.Response
 
 		sourceWSUrl := "https://" + addr + sourceWSResponse.Operation
 		migration, err = dest.MigrateFrom(destName, sourceWSUrl, source.Certificate, secrets, status.Architecture, status.Config, status.Devices, status.Profiles, baseImage, ephemeral == 1, false, source, sourceWSResponse.Operation)

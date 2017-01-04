@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -12,22 +13,24 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/lxc/lxd/shared"
-	"github.com/lxc/lxd/shared/api"
-	"github.com/lxc/lxd/shared/version"
 )
+
+func certGenerateFingerprint(cert *x509.Certificate) string {
+	return fmt.Sprintf("%x", sha256.Sum256(cert.Raw))
+}
 
 func certificatesGet(d *Daemon, r *http.Request) Response {
 	recursion := d.isRecursionRequest(r)
 
 	if recursion {
-		certResponses := []api.Certificate{}
+		certResponses := []shared.CertInfo{}
 
 		baseCerts, err := dbCertsGet(d.db)
 		if err != nil {
 			return SmartError(err)
 		}
 		for _, baseCert := range baseCerts {
-			resp := api.Certificate{}
+			resp := shared.CertInfo{}
 			resp.Fingerprint = baseCert.Fingerprint
 			resp.Certificate = baseCert.Certificate
 			if baseCert.Type == 1 {
@@ -42,11 +45,18 @@ func certificatesGet(d *Daemon, r *http.Request) Response {
 
 	body := []string{}
 	for _, cert := range d.clientCerts {
-		fingerprint := fmt.Sprintf("/%s/certificates/%s", version.APIVersion, shared.CertFingerprint(&cert))
+		fingerprint := fmt.Sprintf("/%s/certificates/%s", shared.APIVersion, certGenerateFingerprint(&cert))
 		body = append(body, fingerprint)
 	}
 
 	return SyncResponse(true, body)
+}
+
+type certificatesPostBody struct {
+	Type        string `json:"type"`
+	Certificate string `json:"certificate"`
+	Name        string `json:"name"`
+	Password    string `json:"password"`
 }
 
 func readSavedClientCAList(d *Daemon) {
@@ -76,7 +86,7 @@ func readSavedClientCAList(d *Daemon) {
 
 func saveCert(d *Daemon, host string, cert *x509.Certificate) error {
 	baseCert := new(dbCertInfo)
-	baseCert.Fingerprint = shared.CertFingerprint(cert)
+	baseCert.Fingerprint = certGenerateFingerprint(cert)
 	baseCert.Type = 1
 	baseCert.Name = host
 	baseCert.Certificate = string(
@@ -88,7 +98,7 @@ func saveCert(d *Daemon, host string, cert *x509.Certificate) error {
 
 func certificatesPost(d *Daemon, r *http.Request) Response {
 	// Parse the request
-	req := api.CertificatesPost{}
+	req := certificatesPostBody{}
 	if err := shared.ReadToJSON(r.Body, &req); err != nil {
 		return BadRequest(err)
 	}
@@ -132,9 +142,9 @@ func certificatesPost(d *Daemon, r *http.Request) Response {
 		return BadRequest(fmt.Errorf("Can't use TLS data on non-TLS link"))
 	}
 
-	fingerprint := shared.CertFingerprint(cert)
+	fingerprint := certGenerateFingerprint(cert)
 	for _, existingCert := range d.clientCerts {
-		if fingerprint == shared.CertFingerprint(&existingCert) {
+		if fingerprint == certGenerateFingerprint(&existingCert) {
 			return BadRequest(fmt.Errorf("Certificate already in trust store"))
 		}
 	}
@@ -146,7 +156,7 @@ func certificatesPost(d *Daemon, r *http.Request) Response {
 
 	d.clientCerts = append(d.clientCerts, *cert)
 
-	return SyncResponseLocation(true, nil, fmt.Sprintf("/%s/certificates/%s", version.APIVersion, fingerprint))
+	return SyncResponseLocation(true, nil, fmt.Sprintf("/%s/certificates/%s", shared.APIVersion, fingerprint))
 }
 
 var certificatesCmd = Command{name: "certificates", untrustedPost: true, get: certificatesGet, post: certificatesPost}
@@ -162,8 +172,8 @@ func certificateFingerprintGet(d *Daemon, r *http.Request) Response {
 	return SyncResponseETag(true, cert, cert)
 }
 
-func doCertificateGet(d *Daemon, fingerprint string) (api.Certificate, error) {
-	resp := api.Certificate{}
+func doCertificateGet(d *Daemon, fingerprint string) (shared.CertInfo, error) {
+	resp := shared.CertInfo{}
 
 	dbCertInfo, err := dbCertGet(d.db, fingerprint)
 	if err != nil {
@@ -196,7 +206,7 @@ func certificateFingerprintPut(d *Daemon, r *http.Request) Response {
 		return PreconditionFailed(err)
 	}
 
-	req := api.CertificatePut{}
+	req := shared.CertInfo{}
 	if err := shared.ReadToJSON(r.Body, &req); err != nil {
 		return BadRequest(err)
 	}
@@ -236,10 +246,10 @@ func certificateFingerprintPatch(d *Daemon, r *http.Request) Response {
 		req.Type = value
 	}
 
-	return doCertificateUpdate(d, fingerprint, req.Writable())
+	return doCertificateUpdate(d, fingerprint, req)
 }
 
-func doCertificateUpdate(d *Daemon, fingerprint string, req api.CertificatePut) Response {
+func doCertificateUpdate(d *Daemon, fingerprint string, req shared.CertInfo) Response {
 	if req.Type != "client" {
 		return BadRequest(fmt.Errorf("Unknown request type %s", req.Type))
 	}
